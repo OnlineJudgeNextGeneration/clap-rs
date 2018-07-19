@@ -572,6 +572,7 @@ use std::result::Result as StdResult;
 
 #[macro_use]
 mod macros;
+mod mkeymap;
 mod completions;
 mod parse;
 mod build;
