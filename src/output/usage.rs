@@ -2,10 +2,10 @@
 use std::collections::{BTreeMap, VecDeque};
 
 // Internal
-use INTERNAL_ERROR_MSG;
-use build::{Arg, ArgSettings};
 use build::AppSettings as AS;
-use parse::{Parser, ArgMatcher};
+use build::{Arg, ArgSettings};
+use parse::{ArgMatcher, Parser};
+use INTERNAL_ERROR_MSG;
 
 pub struct Usage<'a, 'b, 'c, 'z>(&'z Parser<'a, 'b, 'c>)
 where
@@ -60,7 +60,8 @@ impl<'a, 'b, 'c, 'z> Usage<'a, 'b, 'c, 'z> {
     // Creates a usage string for display in help messages (i.e. not for errors)
     pub fn create_help_usage(&self, incl_reqs: bool) -> String {
         let mut usage = String::with_capacity(75);
-        let name = self.0
+        let name = self
+            .0
             .app
             .usage
             .as_ref()
@@ -170,12 +171,14 @@ impl<'a, 'b, 'c, 'z> Usage<'a, 'b, 'c, 'z> {
         let mut hs: Vec<&str> = self.0.required().map(|s| &**s).collect();
         hs.extend_from_slice(used);
 
-        let r_string = self.get_required_usage_from(&hs, None, None, false)
+        let r_string = self
+            .get_required_usage_from(&hs, None, None, false)
             .iter()
             .fold(String::new(), |acc, s| acc + &format!(" {}", s)[..]);
 
         usage.push_str(
-            &self.0
+            &self
+                .0
                 .app
                 .usage
                 .as_ref()
@@ -220,7 +223,8 @@ impl<'a, 'b, 'c, 'z> Usage<'a, 'b, 'c, 'z> {
         } else if count == 1 && incl_reqs {
             let pos = positionals!(self.0.app)
                 .find(|pos| {
-                    !pos.is_set(ArgSettings::Required) && !pos.is_set(ArgSettings::Hidden)
+                    !pos.is_set(ArgSettings::Required)
+                        && !pos.is_set(ArgSettings::Hidden)
                         && !pos.is_set(ArgSettings::Last)
                 })
                 .expect(INTERNAL_ERROR_MSG);
@@ -233,7 +237,8 @@ impl<'a, 'b, 'c, 'z> Usage<'a, 'b, 'c, 'z> {
                 pos.name_no_brackets(),
                 pos.multiple_str()
             ));
-        } else if self.0.is_set(AS::DontCollapseArgsInUsage) && self.0.has_positionals()
+        } else if self.0.is_set(AS::DontCollapseArgsInUsage)
+            && self.0.has_positionals()
             && incl_reqs
         {
             debugln!("usage::get_args_tag:iter: Don't collapse returning all");
@@ -326,15 +331,19 @@ impl<'a, 'b, 'c, 'z> Usage<'a, 'b, 'c, 'z> {
         desc_reqs.extend(extra);
         let mut new_reqs: Vec<&str> = vec![];
         macro_rules! get_requires {
-            (@group $a: ident, $v:ident, $p:ident) => {{
+            (@group $a:ident, $v:ident, $p:ident) => {{
                 if let Some(rl) = groups!(self.0.app)
-                                                .filter(|g| g.requires.is_some())
-                                                .find(|g| &g.name == $a)
-                                                .map(|g| g.requires.as_ref().unwrap()) {
+                    .filter(|g| g.requires.is_some())
+                    .find(|g| &g.name == $a)
+                    .map(|g| g.requires.as_ref().unwrap())
+                {
                     for r in rl {
                         if !$p.contains(&r) {
-                            debugln!("usage::get_required_usage_from:iter:{}: adding group req={:?}",
-                                $a, r);
+                            debugln!(
+                                "usage::get_required_usage_from:iter:{}: adding group req={:?}",
+                                $a,
+                                r
+                            );
                             $v.push(r);
                         }
                     }
@@ -342,13 +351,17 @@ impl<'a, 'b, 'c, 'z> Usage<'a, 'b, 'c, 'z> {
             }};
             ($a:ident, $what:ident, $how:ident, $v:ident, $p:ident) => {{
                 if let Some(rl) = $what!(self.0.app)
-                                            .filter(|a| a.requires.is_some())
-                                            .find(|arg| &arg.name == $a)
-                                            .map(|a| a.requires.as_ref().unwrap()) {
+                    .filter(|a| a.requires.is_some())
+                    .find(|arg| &arg.name == $a)
+                    .map(|a| a.requires.as_ref().unwrap())
+                {
                     for &(_, r) in rl.iter() {
                         if !$p.contains(&r) {
-                            debugln!("usage::get_required_usage_from:iter:{}: adding arg req={:?}",
-                                $a, r);
+                            debugln!(
+                                "usage::get_required_usage_from:iter:{}: adding arg req={:?}",
+                                $a,
+                                r
+                            );
                             $v.push(r);
                         }
                     }

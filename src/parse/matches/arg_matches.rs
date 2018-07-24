@@ -8,8 +8,8 @@ use std::slice::Iter;
 use indexmap::IndexMap;
 
 // Internal
-use INVALID_UTF8;
 use parse::{MatchedArg, SubCommand};
+use INVALID_UTF8;
 
 /// Used to get information about the arguments that where supplied to the program at runtime by
 /// the user. New instances of this struct are obtained by using the [`App::get_matches`] family of
@@ -895,7 +895,8 @@ impl<'a> Default for OsValues<'a> {
 /// [`ArgMatches::indices_of`]: ./struct.ArgMatches.html#method.indices_of
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
-pub struct Indices<'a> { // would rather use '_, but: https://github.com/rust-lang/rust/issues/48469
+pub struct Indices<'a> {
+    // would rather use '_, but: https://github.com/rust-lang/rust/issues/48469
     iter: Map<Iter<'a, usize>, fn(&'a usize) -> usize>,
 }
 

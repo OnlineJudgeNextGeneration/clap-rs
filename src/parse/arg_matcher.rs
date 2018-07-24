@@ -1,6 +1,6 @@
 // Std
-use std::ffi::OsStr;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::mem;
 
 // Third Party
@@ -130,14 +130,14 @@ impl<'a> ArgMatcher<'a> {
     }
 
     pub fn add_index_to(&mut self, arg: &'a str, idx: usize) {
-      let ma = self.entry(arg).or_insert(MatchedArg {
-        occurs: 0,
-        indices: Vec::with_capacity(1),
-        vals: Vec::new(),
-      });
-      ma.indices.push(idx);
+        let ma = self.entry(arg).or_insert(MatchedArg {
+            occurs: 0,
+            indices: Vec::with_capacity(1),
+            vals: Vec::new(),
+        });
+        ma.indices.push(idx);
     }
-    
+
     pub fn needs_more_vals<'b>(&self, o: &Arg) -> bool {
         debugln!("ArgMatcher::needs_more_vals: o={}", o.name);
         if let Some(ma) = self.get(o.name) {

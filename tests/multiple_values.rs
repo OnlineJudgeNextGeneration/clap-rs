@@ -13,7 +13,7 @@ fn option_long() {
                 .multiple(true),
         )
         .get_matches_from_safe(vec![
-            "", "--option", "val1", "--option", "val2", "--option", "val3"
+            "", "--option", "val1", "--option", "val2", "--option", "val3",
         ]);
 
     assert!(m.is_ok());
@@ -62,7 +62,7 @@ fn option_mixed() {
                 .multiple(true),
         )
         .get_matches_from_safe(vec![
-            "", "-o", "val1", "--option", "val2", "--option", "val3", "-o", "val4"
+            "", "-o", "val1", "--option", "val2", "--option", "val3", "-o", "val4",
         ]);
 
     assert!(m.is_ok());
@@ -135,7 +135,7 @@ fn option_exact_exact_mult() {
                 .number_of_values(3),
         )
         .get_matches_from_safe(vec![
-            "", "-o", "val1", "val2", "val3", "-o", "val4", "val5", "val6"
+            "", "-o", "val1", "val2", "val3", "-o", "val4", "val5", "val6",
         ]);
 
     assert!(m.is_ok());
@@ -178,7 +178,7 @@ fn option_exact_more() {
                 .number_of_values(3),
         )
         .get_matches_from_safe(vec![
-            "", "-o", "val1", "-o", "val2", "-o", "val3", "-o", "val4"
+            "", "-o", "val1", "-o", "val2", "-o", "val3", "-o", "val4",
         ]);
 
     assert!(m.is_err());
@@ -239,7 +239,7 @@ fn option_short_min_more_mult_occurs() {
                 .min_values(3),
         )
         .get_matches_from_safe(vec![
-            "", "pos", "-o", "val1", "-o", "val2", "-o", "val3", "-o", "val4"
+            "", "pos", "-o", "val1", "-o", "val2", "-o", "val3", "-o", "val4",
         ]);
 
     assert!(res.is_ok(), "{:?}", res.unwrap_err().kind);
@@ -342,7 +342,7 @@ fn option_max_more() {
                 .max_values(3),
         )
         .get_matches_from_safe(vec![
-            "", "-o", "val1", "-o", "val2", "-o", "val3", "-o", "val4"
+            "", "-o", "val1", "-o", "val2", "-o", "val3", "-o", "val4",
         ]);
 
     assert!(m.is_err());
@@ -1079,7 +1079,7 @@ fn low_index_positional_with_option() {
         .arg(Arg::with_name("target").index(2).required(true))
         .arg(Arg::with_name("opt").long("option").takes_value(true))
         .get_matches_from_safe(vec![
-            "lip", "file1", "file2", "file3", "target", "--option", "test"
+            "lip", "file1", "file2", "file3", "target", "--option", "test",
         ]);
 
     assert!(m.is_ok(), "{:?}", m.unwrap_err().kind);

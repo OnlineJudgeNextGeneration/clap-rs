@@ -5,11 +5,11 @@ pub use self::settings::{AppFlags, AppSettings};
 use std::env;
 use std::ffi::OsString;
 use std::fmt;
+use std::fs::File;
 use std::io::{self, BufRead, BufWriter, Write};
+use std::iter::Peekable;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::fs::File;
-use std::iter::Peekable;
 
 // Third Party
 #[cfg(feature = "yaml")]
@@ -18,11 +18,11 @@ use yaml_rust::Yaml;
 // Internal
 use build::{Arg, ArgGroup, ArgSettings};
 use completions::{ComplGen, Shell};
-use output::Help;
+use mkeymap::{KeyType, MKeyMap};
 use output::fmt::ColorWhen;
-use parse::{Parser, ArgMatcher, ArgMatches};
+use output::Help;
 use parse::errors::Result as ClapResult;
-use mkeymap::{MKeyMap, KeyType};
+use parse::{ArgMatcher, ArgMatches, Parser};
 
 #[doc(hidden)]
 #[allow(dead_code)]
@@ -31,7 +31,7 @@ pub enum Propagation<'a> {
     To(&'a str),
     Full,
     NextLevel,
-    None
+    None,
 }
 
 /// Used to create a representation of a command line program and all possible command line
@@ -106,7 +106,7 @@ where
     #[doc(hidden)]
     pub g_settings: AppFlags,
     #[doc(hidden)]
-    pub args: MKeyMap,
+    pub args: MKeyMap<'a, 'b>,
     #[doc(hidden)]
     pub subcommands: Vec<App<'a, 'b>>,
     #[doc(hidden)]
@@ -632,7 +632,7 @@ impl<'a, 'b> App<'a, 'b> {
     /// ```
     /// [argument]: ./struct.Arg.html
     pub fn arg<A: Into<Arg<'a, 'b>>>(mut self, a: A) -> Self {
-        let help_heading : Option<&'a str> = if let Some(option_str) = self.help_headings.last() {
+        let help_heading: Option<&'a str> = if let Some(option_str) = self.help_headings.last() {
             *option_str
         } else {
             None
@@ -988,8 +988,9 @@ impl<'a, 'b> App<'a, 'b> {
     where
         F: FnOnce(Arg<'a, 'b>) -> Arg<'a, 'b>,
     {
-        let i = self.args
-            .iter()
+        let i = self
+            .args
+            .values()
             .enumerate()
             .filter_map(|(i, a)| if a.name == arg { Some(i) } else { None })
             .next();
@@ -1180,24 +1181,25 @@ impl<'a, 'b> App<'a, 'b> {
     /// [`env::args_os`]: https://doc.rust-lang.org/std/env/fn.args_os.html
     /// [`App::get_matches`]: ./struct.App.html#method.get_matches
     pub fn get_matches_mut(&mut self) -> ArgMatches<'a> {
-        self.try_get_matches_from_mut(&mut env::args_os()).unwrap_or_else(|e| {
-            // Otherwise, write to stderr and exit
-            if e.use_stderr() {
-                wlnerr!("{}", e.message);
-                if self.settings.is_set(AppSettings::WaitOnError) {
-                    wlnerr!("\nPress [ENTER] / [RETURN] to continue...");
-                    let mut s = String::new();
-                    let i = io::stdin();
-                    i.lock().read_line(&mut s).unwrap();
+        self.try_get_matches_from_mut(&mut env::args_os())
+            .unwrap_or_else(|e| {
+                // Otherwise, write to stderr and exit
+                if e.use_stderr() {
+                    wlnerr!("{}", e.message);
+                    if self.settings.is_set(AppSettings::WaitOnError) {
+                        wlnerr!("\nPress [ENTER] / [RETURN] to continue...");
+                        let mut s = String::new();
+                        let i = io::stdin();
+                        i.lock().read_line(&mut s).unwrap();
+                    }
+                    drop(self);
+                    drop(e);
+                    process::exit(1);
                 }
-                drop(self);
-                drop(e);
-                process::exit(1);
-            }
 
-            drop(self);
-            e.exit()
-        })
+                drop(self);
+                e.exit()
+            })
     }
 
     /// Starts the parsing process. This method will return a [`clap::Result`] type instead of exiting
@@ -1397,7 +1399,7 @@ impl<'a, 'b> App<'a, 'b> {
 
         let global_arg_vec: Vec<&str> = (&self)
             .args
-            .iter()
+            .values()
             .filter(|a| a.is_set(ArgSettings::Global))
             .map(|ga| ga.name)
             .collect();
@@ -1429,7 +1431,7 @@ impl<'a, 'b> App<'a, 'b> {
             }
             true
         });
-        //TODO add .values_mut() for MKeyMap
+
         for a in self.args.values_mut() {
             // Fill in the groups
             if let Some(ref grps) = a.groups {
@@ -1466,16 +1468,18 @@ impl<'a, 'b> App<'a, 'b> {
         debugln!("App::app_debug_asserts;");
         // * Args listed inside groups should exist
         // * Groups should not have naming conflicts with Args
-        let g = groups!(self).find(|g| {
-            g.args
-                .iter()
-                .any(|arg| !(find!(self, arg).is_some() || groups!(self).any(|g| &g.name == arg)))
-        });
-        assert!(
-            g.is_none(),
-            "The group '{}' contains an arg that doesn't exist or has a naming conflict with a group.",
-            g.unwrap().name
-        );
+
+        // * Will be removed as a part of removing String types
+        // let g = groups!(self).find(|g| {
+        //     g.args
+        //         .iter()
+        //         .any(|arg| !(find!(self, arg).is_some() || groups!(self).any(|g| &g.name == arg)))
+        // });
+        // assert!(
+        //     g.is_none(),
+        //     "The group '{}' contains an arg that doesn't exist or has a naming conflict with a group.",
+        //     g.unwrap().name
+        // );
         true
     }
 
@@ -1502,7 +1506,7 @@ impl<'a, 'b> App<'a, 'b> {
                 sc.max_w = self.max_w;
             }
             {
-                for a in self.args.iter().filter(|a| a.is_set(ArgSettings::Global)) {
+                for a in self.args.values().filter(|a| a.is_set(ArgSettings::Global)) {
                     sc.args.push(a.clone());
                 }
             }
@@ -1546,7 +1550,8 @@ impl<'a, 'b> App<'a, 'b> {
         } else {
             self.settings.unset(AppSettings::NeedsLongVersion);
         }
-        if self.has_subcommands() && !self.is_set(AppSettings::DisableHelpSubcommand)
+        if self.has_subcommands()
+            && !self.is_set(AppSettings::DisableHelpSubcommand)
             && !subcommands!(self).any(|s| s.name == "help")
         {
             debugln!("App::_create_help_and_version: Building help");
@@ -1562,7 +1567,8 @@ impl<'a, 'b> App<'a, 'b> {
     pub(crate) fn _derive_display_order(&mut self) {
         debugln!("App::_derive_display_order:{}", self.name);
         if self.settings.is_set(AppSettings::DeriveDisplayOrder) {
-            for (i, a) in args_mut!(self).filter(|a| a.has_switch())
+            for (i, a) in args_mut!(self)
+                .filter(|a| a.has_switch())
                 .filter(|a| a.disp_ord == 999)
                 .enumerate()
             {
@@ -1592,7 +1598,10 @@ impl<'a, 'b> App<'a, 'b> {
         // Long conflicts
         if let Some(l) = a.long {
             assert!(
-                args!(self).fold(0, |acc, arg| if arg.long == Some(l) { acc + 1 } else { acc }) < 2,
+                args!(self).fold(
+                    0,
+                    |acc, arg| if arg.long == Some(l) { acc + 1 } else { acc },
+                ) < 2,
                 "Argument long must be unique\n\n\t--{} is already in use",
                 l
             );
@@ -1601,7 +1610,10 @@ impl<'a, 'b> App<'a, 'b> {
         // Short conflicts
         if let Some(s) = a.short {
             assert!(
-                args!(self).fold(0, |acc, arg| if arg.short == Some(s) { acc + 1 } else { acc }) < 2,
+                args!(self).fold(
+                    0,
+                    |acc, arg| if arg.short == Some(s) { acc + 1 } else { acc },
+                ) < 2,
                 "Argument short must be unique\n\n\t-{} is already in use",
                 s
             );
@@ -1610,7 +1622,13 @@ impl<'a, 'b> App<'a, 'b> {
         if let Some(idx) = a.index {
             // No index conflicts
             assert!(
-                positionals!(self).fold(0, |acc, p| if p.index == Some(idx as u64){acc+1}else{acc}) < 2,
+                positionals!(self).fold(0, |acc, p| {
+                    if p.index == Some(idx as u64) {
+                        acc + 1
+                    } else {
+                        acc
+                    }
+                }) < 2,
                 "Argument '{}' has the same index as another positional \
                  argument\n\n\tUse Arg::setting(ArgSettings::MultipleValues) to allow one \
                  positional argument to take multiple values",
@@ -1618,14 +1636,18 @@ impl<'a, 'b> App<'a, 'b> {
             );
         }
         if a.is_set(ArgSettings::Last) {
-            assert!(a.long.is_none(),
-                    "Flags or Options may not have last(true) set. {} has both a long and \
-                    last(true) set.",
-                    a.name);
-            assert!(a.short.is_none(),
-                    "Flags or Options may not have last(true) set. {} has both a short and \
-                    last(true) set.",
-                    a.name);
+            assert!(
+                a.long.is_none(),
+                "Flags or Options may not have last(true) set. {} has both a long and \
+                 last(true) set.",
+                a.name
+            );
+            assert!(
+                a.short.is_none(),
+                "Flags or Options may not have last(true) set. {} has both a short and \
+                 last(true) set.",
+                a.name
+            );
         }
         assert!(
             !(a.is_set(ArgSettings::Required) && a.is_set(ArgSettings::Global)),
@@ -1707,9 +1729,11 @@ impl<'a, 'b> App<'a, 'b> {
             ColorWhen::Auto
         }
     }
-    pub(crate) fn contains_long(&self, l: &str) -> bool { longs!(self).any(|al| al == l) }
+    pub(crate) fn contains_long(&self, l: &str) -> bool {
+        longs!(self).any(|&al| al == OsString::from(l).as_os_str())
+    }
 
-    pub(crate) fn contains_short(&self, s: char) -> bool { shorts!(self).any(|arg_s| arg_s == s) }
+    pub(crate) fn contains_short(&self, s: char) -> bool { shorts!(self).any(|&arg_s| arg_s == s) }
 
     pub fn is_set(&self, s: AppSettings) -> bool {
         self.settings.is_set(s) || self.g_settings.is_set(s)
@@ -1733,9 +1757,13 @@ impl<'a, 'b> App<'a, 'b> {
 
     pub fn has_positionals(&self) -> bool { positionals!(self).count() > 0 }
 
-    pub fn has_visible_opts(&self) -> bool { opts!(self).any(|o| !o.is_set(ArgSettings::Hidden)) }
+    pub fn has_visible_opts(&self) -> bool {
+        opts!(self).any(|(k, o)| !o.is_set(ArgSettings::Hidden))
+    }
 
-    pub fn has_visible_flags(&self) -> bool { flags!(self).any(|o| !o.is_set(ArgSettings::Hidden)) }
+    pub fn has_visible_flags(&self) -> bool {
+        flags!(self).any(|(k, o)| !o.is_set(ArgSettings::Hidden))
+    }
 
     pub fn has_visible_positionals(&self) -> bool {
         positionals!(self).any(|o| !o.is_set(ArgSettings::Hidden))
@@ -1751,9 +1779,11 @@ impl<'a, 'b> App<'a, 'b> {
 // @TODO @v3-beta: remove
 // Deprecations
 impl<'a, 'b> App<'a, 'b> {
-
     /// **Deprecated:** Use `App::global_setting( SettingOne | SettingTwo )` instead
-    #[deprecated(since="2.33.0", note="Use `App::global_setting( SettingOne | SettingTwo )` instead")]
+    #[deprecated(
+        since = "2.33.0",
+        note = "Use `App::global_setting( SettingOne | SettingTwo )` instead"
+    )]
     pub fn global_settings(mut self, settings: &[AppSettings]) -> Self {
         for s in settings {
             self.settings.set(*s);
@@ -1763,7 +1793,10 @@ impl<'a, 'b> App<'a, 'b> {
     }
 
     /// **Deprecated:** Use `App::setting( SettingOne | SettingTwo )` instead
-    #[deprecated(since="2.33.0", note="Use `App::setting( SettingOne | SettingTwo )` instead")]
+    #[deprecated(
+        since = "2.33.0",
+        note = "Use `App::setting( SettingOne | SettingTwo )` instead"
+    )]
     pub fn settings(mut self, settings: &[AppSettings]) -> Self {
         for s in settings {
             self.settings.set(*s);
@@ -1771,9 +1804,11 @@ impl<'a, 'b> App<'a, 'b> {
         self
     }
 
-
     /// **Deprecated:** Use `App::unset_setting( SettingOne | SettingTwo )` instead
-    #[deprecated(since="2.33.0", note="Use `App::unset_setting( SettingOne | SettingTwo )` instead")]
+    #[deprecated(
+        since = "2.33.0",
+        note = "Use `App::unset_setting( SettingOne | SettingTwo )` instead"
+    )]
     pub fn unset_settings(mut self, settings: &[AppSettings]) -> Self {
         for s in settings {
             self.settings.unset(*s);
@@ -1783,8 +1818,11 @@ impl<'a, 'b> App<'a, 'b> {
     }
 
     /// **Deprecated:** Use explicit `App::author()` and `App::version()` calls instead.
-    #[deprecated(since="2.14.1", note="Can never work; use explicit App::author() and \
-        App::version() calls instead. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.14.1",
+        note = "Can never work; use explicit App::author() and \
+                App::version() calls instead. Will be removed in v3.0-beta"
+    )]
     pub fn with_defaults<S: Into<String>>(n: S) -> Self {
         App {
             name: n.into(),
@@ -1795,14 +1833,21 @@ impl<'a, 'b> App<'a, 'b> {
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Use App::from instead. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Use App::from instead. Will be removed in v3.0-beta"
+    )]
     #[cfg(feature = "yaml")]
     pub fn from_yaml(yaml: &'a Yaml) -> App<'a, 'a> { App::from(yaml) }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Use `App::mut_arg(\"help\", |a| a.short(\"H\"))` instead. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Use `App::mut_arg(\"help\", |a| a.short(\"H\"))` instead. Will be removed in v3.0-beta"
+    )]
     pub fn help_short<S: AsRef<str> + 'b>(mut self, s: S) -> Self {
-        let c = s.as_ref()
+        let c = s
+            .as_ref()
             .trim_left_matches(|c| c == '-')
             .chars()
             .nth(0)
@@ -1812,9 +1857,13 @@ impl<'a, 'b> App<'a, 'b> {
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Use `App::mut_arg(\"version\", |a| a.short(\"v\"))` instead. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Use `App::mut_arg(\"version\", |a| a.short(\"v\"))` instead. Will be removed in v3.0-beta"
+    )]
     pub fn version_short<S: AsRef<str>>(mut self, s: S) -> Self {
-        let c = s.as_ref()
+        let c = s
+            .as_ref()
             .trim_left_matches(|c| c == '-')
             .chars()
             .nth(0)
@@ -1824,49 +1873,70 @@ impl<'a, 'b> App<'a, 'b> {
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Use `App::mut_arg(\"help\", |a| a.help(\"Some message\"))` instead. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Use `App::mut_arg(\"help\", |a| a.help(\"Some message\"))` instead. Will be removed in v3.0-beta"
+    )]
     pub fn help_message<S: Into<&'a str>>(mut self, s: S) -> Self {
         self.help_message = Some(s.into());
         self
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Use `App::mut_arg(\"version\", |a| a.short(\"Some message\"))` instead. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Use `App::mut_arg(\"version\", |a| a.short(\"Some message\"))` instead. Will be removed in v3.0-beta"
+    )]
     pub fn version_message<S: Into<&'a str>>(mut self, s: S) -> Self {
         self.version_message = Some(s.into());
         self
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Renamed to `App::override_usage`. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Renamed to `App::override_usage`. Will be removed in v3.0-beta"
+    )]
     pub fn usage<S: Into<&'b str>>(mut self, usage: S) -> Self {
         self.usage_str = Some(usage.into());
         self
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Renamed to `App::override_help`. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Renamed to `App::override_help`. Will be removed in v3.0-beta"
+    )]
     pub fn help<S: Into<&'b str>>(mut self, help: S) -> Self {
         self.help_str = Some(help.into());
         self
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Renamed to `App::help_template`. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Renamed to `App::help_template`. Will be removed in v3.0-beta"
+    )]
     pub fn template<S: Into<&'b str>>(mut self, s: S) -> Self {
         self.template = Some(s.into());
         self
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Use `App::arg(Arg::from(&str)` instead. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Use `App::arg(Arg::from(&str)` instead. Will be removed in v3.0-beta"
+    )]
     pub fn arg_from_usage(mut self, usage: &'a str) -> Self {
         self.args.push(Arg::from(usage));
         self
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Use `App::args(&str)` instead. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Use `App::args(&str)` instead. Will be removed in v3.0-beta"
+    )]
     pub fn args_from_usage(mut self, usage: &'a str) -> Self {
         for line in usage.lines() {
             let l = line.trim();
@@ -1880,7 +1950,10 @@ impl<'a, 'b> App<'a, 'b> {
 
     /// **Deprecated:** Use
     #[allow(deprecated)]
-    #[deprecated(since="2.30.0", note="Use `clap_completions crate and clap_completions::generate` instead. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Use `clap_completions crate and clap_completions::generate` instead. Will be removed in v3.0-beta"
+    )]
     pub fn gen_completions<T: Into<OsString>, S: Into<String>>(
         &mut self,
         bin_name: S,
@@ -1897,7 +1970,7 @@ impl<'a, 'b> App<'a, 'b> {
             Shell::Zsh => format!("_{}", name),
             Shell::PowerShell => format!("_{}.ps1", name),
             Shell::Elvish => format!("{}.elv", name),
-            _ => panic!("Unsupported shell type for completion generation")
+            _ => panic!("Unsupported shell type for completion generation"),
         };
 
         let mut file = match File::create(out_dir.join(file_name)) {
@@ -1908,7 +1981,10 @@ impl<'a, 'b> App<'a, 'b> {
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Use `clap_completions crate and clap_completions::generate_to` instead. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Use `clap_completions crate and clap_completions::generate_to` instead. Will be removed in v3.0-beta"
+    )]
     pub fn gen_completions_to<W: Write, S: Into<String>>(
         &mut self,
         bin_name: S,
@@ -1925,14 +2001,20 @@ impl<'a, 'b> App<'a, 'b> {
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Renamed `App::try_get_matches` to be consistent with Rust naming conventions. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Renamed `App::try_get_matches` to be consistent with Rust naming conventions. Will be removed in v3.0-beta"
+    )]
     pub fn get_matches_safe(self) -> ClapResult<ArgMatches<'a>> {
         // Start the parsing
         self.try_get_matches_from(&mut env::args_os())
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Renamed `App::try_get_matches_from` to be consistent with Rust naming conventions. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Renamed `App::try_get_matches_from` to be consistent with Rust naming conventions. Will be removed in v3.0-beta"
+    )]
     pub fn get_matches_from_safe<I, T>(mut self, itr: I) -> ClapResult<ArgMatches<'a>>
     where
         I: IntoIterator<Item = T>,
@@ -1942,7 +2024,10 @@ impl<'a, 'b> App<'a, 'b> {
     }
 
     /// **Deprecated:** Use
-    #[deprecated(since="2.30.0", note="Renamed `App::try_get_matches_from_mut` to be consistent with Rust naming conventions. Will be removed in v3.0-beta")]
+    #[deprecated(
+        since = "2.30.0",
+        note = "Renamed `App::try_get_matches_from_mut` to be consistent with Rust naming conventions. Will be removed in v3.0-beta"
+    )]
     pub fn get_matches_from_safe_borrow<I, T>(&mut self, itr: I) -> ClapResult<ArgMatches<'a>>
     where
         I: IntoIterator<Item = T>,
@@ -1950,7 +2035,6 @@ impl<'a, 'b> App<'a, 'b> {
     {
         self.try_get_matches_from_mut(itr)
     }
-
 }
 
 #[cfg(feature = "yaml")]
@@ -1974,7 +2058,10 @@ impl<'a> From<&'a Yaml> for App<'a, 'a> {
                 if let Some(v) = $y[stringify!($i)].as_str() {
                     $a = $a.$i(v);
                 } else if $y[stringify!($i)] != Yaml::BadValue {
-                    panic!("Failed to convert YAML value {:?} to a string", $y[stringify!($i)]);
+                    panic!(
+                        "Failed to convert YAML value {:?} to a string",
+                        $y[stringify!($i)]
+                    );
                 }
             };
         }
@@ -2050,25 +2137,27 @@ impl<'a> From<&'a Yaml> for App<'a, 'a> {
 
         macro_rules! vec_or_str {
             ($a:ident, $y:ident, $as_vec:ident, $as_single:ident) => {{
-                    let maybe_vec = $y[stringify!($as_vec)].as_vec();
-                    if let Some(vec) = maybe_vec {
-                        for ys in vec {
-                            if let Some(s) = ys.as_str() {
-                                $a = $a.$as_single(s);
-                            } else {
-                                panic!("Failed to convert YAML value {:?} to a string", ys);
-                            }
-                        }
-                    } else {
-                        if let Some(s) = $y[stringify!($as_vec)].as_str() {
+                let maybe_vec = $y[stringify!($as_vec)].as_vec();
+                if let Some(vec) = maybe_vec {
+                    for ys in vec {
+                        if let Some(s) = ys.as_str() {
                             $a = $a.$as_single(s);
-                        } else if $y[stringify!($as_vec)] != Yaml::BadValue {
-                            panic!("Failed to convert YAML value {:?} to either a vec or string", $y[stringify!($as_vec)]);
+                        } else {
+                            panic!("Failed to convert YAML value {:?} to a string", ys);
                         }
                     }
-                    $a
+                } else {
+                    if let Some(s) = $y[stringify!($as_vec)].as_str() {
+                        $a = $a.$as_single(s);
+                    } else if $y[stringify!($as_vec)] != Yaml::BadValue {
+                        panic!(
+                            "Failed to convert YAML value {:?} to either a vec or string",
+                            $y[stringify!($as_vec)]
+                        );
+                    }
                 }
-            };
+                $a
+            }};
         }
 
         a = vec_or_str!(a, yaml, aliases, alias);
